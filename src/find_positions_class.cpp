@@ -193,6 +193,7 @@ void FindPositions::findWaypointsDistance(int* tour){
 //return length
 
 void FindPositions::makeMapForPath(){
+  ROS_INFO("make map path");
   mpo_costmap = new costmap_2d::Costmap2D();
 
   uint8_t* mp_cost_translation_table;
@@ -224,9 +225,11 @@ void FindPositions::makeMapForPath(){
       pmap[idx] = val < 0 ? 255 : mp_cost_translation_table[val];
     }
   }
+  ROS_INFO("done map path");
 }
 
 double FindPositions::calculatePath(double ax, double ay, double bx, double by){
+ // ROS_INFO("calculate len..");
   alignas(64) float fupperbound;
   fupperbound = static_cast<float>(DIST_HIGH);
   
@@ -295,7 +298,7 @@ void FindPositions::checkRealPath(){
   v.push_back({waypointsWorld[0]});
   for(int i=0;i<waypointsWorld.size()-1; i++){
     double path_len = calculatePath(waypointsWorld[i][0], waypointsWorld[i][1], waypointsWorld[i+1][0], waypointsWorld[i+1][1]);
-      //check the length is under 3.0 m (first just ???)
+    //check the length is under 3.0 m (first just ???)
     if(path_len==0.0){
       ROS_INFO("path is not found..");
       //do it something.
@@ -309,31 +312,60 @@ void FindPositions::checkRealPath(){
     }
   }
   
-  /////ej_find_connected_graph
+  ROS_INFO("Graph size: %lu", v.size());
   for(int i=0;i<v.size(); i++){
-    //next_node, nearest position, length
-    vector nearest_info={0, {0,0}, DBL_MAX};
-    
+    ROS_INFO("Graph node: %d", i);
     for(int j=0;j<v[i].size(); j++){
-      
-      for(int n=0;i<v.size(); i++){
-        if(i==n) continue;
-        for(int m=0;j<v[n].size(); j++){
-          double path_len = calculatePath(v[i][j][1], v[i][j][0], v[n][m][0], v[n][m][1]);
-          if(path_len<3.0){
-            nearest_info[0] = n;
-            nearest_info[1][0] = v[n][m][0];
-            nearest_info[1][1] = v[n][m][1];
-          }
-        }
-      }
-      
+      ROS_INFO("x: %lf, y: %lf", v[i][j][0], v[i][j][1]);
     }
   }
   
-  
-  
-  
+  if(v.size()>1){
+    vector<vector<int>> near_node(v.size());
+    vector<vector<array<double,2>>> near_position(v.size());
+    vector<vector<double>> near_length(v.size());
+    /////ej_find_connected_graph
+    for(int i=0;i<v.size(); i++){
+      int near_exist=0;
+      int tmp_node=0;
+      array<double,2> tmp_position={0, 0};
+      double tmp_len = DBL_MAX;
+      for(int j=0;j<v[i].size(); j++){
+        
+        for(int n=0;i<v.size(); i++){
+          if(i==n) continue;
+          for(int m=0;j<v[n].size(); j++){
+            double path_len = calculatePath(v[i][j][1], v[i][j][0], v[n][m][0], v[n][m][1]);
+            if(path_len<3.0){
+              near_node[i].push_back(n);
+              near_position[i].push_back(v[n][m]);
+              near_length[i].push_back(path_len);
+              near_exist=1;
+              break;
+            }
+            if(tmp_len>path_len){
+              tmp_node = n;
+              tmp_position[0]=v[n][m][0]; tmp_position[1]=v[n][m][1];
+              tmp_len=path_len;
+            }
+          }
+        }
+      }
+      //near node doesnt exist..
+      if(near_exist==0){
+        near_node[i].push_back(tmp_node);
+        near_position[i].push_back(tmp_position);
+        near_length[i].push_back(tmp_len);
+      }
+    }
+    
+    for(int i=0;i<near_node.size();i++){
+      ROS_INFO("node: %d", i);
+      for(int j=0;j<near_node[i].size();j++){
+        ROS_INFO("near node: %d", near_node[i][j]);
+      }
+    }
+  }
   
   ////ej_visual 
   for(int i=0;i<v.size(); i++){
