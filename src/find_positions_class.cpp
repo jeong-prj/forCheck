@@ -198,7 +198,7 @@ void FindPositions::makeMapForPath(){
 
   uint8_t* mp_cost_translation_table;
   
-  if (mp_cost_translation_table == NULL){
+  if (mp_cost_translation_table == NULL){  // <===== move to the class constructor()
     mp_cost_translation_table = new uint8_t[101];
 
     // special values:
@@ -213,6 +213,8 @@ void FindPositions::makeMapForPath(){
       mp_cost_translation_table[ i ] = uint8_t( ((i-1)*251 -1 )/97+1 );
     }
   }
+
+
   this->mpo_costmap->resizeMap( this->map_width, this->map_height, this->map_resolution, this->gridmap_origin_pose[0], this->gridmap_origin_pose[1] );
   //ROS_INFO("mpo_costmap has been reset \n");
   unsigned char* pmap = this->mpo_costmap->getCharMap() ;
@@ -253,8 +255,9 @@ double FindPositions::calculatePath(double ax, double ay, double bx, double by){
   geometry_msgs::PoseStamped goal = StampedPosefromSE2( bx, by, 0.f );
   goal.header.frame_id = "map" ;
       
-  bool bplansuccess = o_gph.makePlan(tid, fupperbound, true, start, goal, plan, fendpot);
-      
+  //bool bplansuccess = o_gph.makePlan(tid, fupperbound, true, start, goal, plan, fendpot);
+  bool bplansuccess = o_gph.makePlan(start, goal, plan);
+
   //caclulate path length..//
   if(!bplansuccess){
     ROS_INFO("couldnt find a path..");
