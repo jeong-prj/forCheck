@@ -1,5 +1,5 @@
 #include "find_positions_class.hpp"
-
+#include <fstream>
 namespace find_positions
 {
 
@@ -7,9 +7,25 @@ FindPositions::FindPositions(){
   m_wayPointsPub = m_nh.advertise<visualization_msgs::Marker>("way_point_marker", 10000);
   m_pathPub = m_nh.advertise<visualization_msgs::Marker>("path_marker", 10000);
   m_gridmapsub = m_nh.subscribe<nav_msgs::OccupancyGrid>("m_gridmap_fin", 1000, &FindPositions::mapCallback, this); 
+  
+  if (mp_cost_translation_table == NULL){
+    mp_cost_translation_table = new uint8_t[101];
+
+    // special values:
+    mp_cost_translation_table[0] = 0;  // NO obstacle
+    mp_cost_translation_table[99] = 253;  // INSCRIBED obstacle
+    mp_cost_translation_table[100] = 254;  // LETHAL obstacle
+//   mp_cost_translation_table[-1] = 255;  // UNKNOWN
+
+    // regular cost values scale the range 1 to 252 (inclusive) to fit
+    // into 1 to 98 (inclusive).
+    for (int i = 1; i < 99; i++){
+      mp_cost_translation_table[ i ] = uint8_t( ((i-1)*251 -1 )/97+1 );
+    }
+  }
 }
 FindPositions::~FindPositions(){
-  
+  delete [] mp_cost_translation_table;
 }
 
 array<double, 2> FindPositions::gridmapToworld(int x, int y){
@@ -167,6 +183,7 @@ void FindPositions::mapCallback(const nav_msgs::OccupancyGrid::ConstPtr& msg){
       }
     }
   }
+  
 }
 
 ////void FindPositions::findWaypointsDistance(vector<int> *tour){
@@ -193,28 +210,9 @@ void FindPositions::findWaypointsDistance(int* tour){
 //return length
 
 void FindPositions::makeMapForPath(){
-  ROS_INFO("make map path");
+  ROS_INFO("make map for path");
   mpo_costmap = new costmap_2d::Costmap2D();
-
-  uint8_t* mp_cost_translation_table;
   
-  if (mp_cost_translation_table == NULL){  // <===== move to the class constructor()
-    mp_cost_translation_table = new uint8_t[101];
-
-    // special values:
-    mp_cost_translation_table[0] = 0;  // NO obstacle
-    mp_cost_translation_table[99] = 253;  // INSCRIBED obstacle
-    mp_cost_translation_table[100] = 254;  // LETHAL obstacle
-//   mp_cost_translation_table[-1] = 255;  // UNKNOWN
-
-    // regular cost values scale the range 1 to 252 (inclusive) to fit
-    // into 1 to 98 (inclusive).
-    for (int i = 1; i < 99; i++){
-      mp_cost_translation_table[ i ] = uint8_t( ((i-1)*251 -1 )/97+1 );
-    }
-  }
-
-
   this->mpo_costmap->resizeMap( this->map_width, this->map_height, this->map_resolution, this->gridmap_origin_pose[0], this->gridmap_origin_pose[1] );
   //ROS_INFO("mpo_costmap has been reset \n");
   unsigned char* pmap = this->mpo_costmap->getCharMap() ;
@@ -227,15 +225,12 @@ void FindPositions::makeMapForPath(){
       pmap[idx] = val < 0 ? 255 : mp_cost_translation_table[val];
     }
   }
+  
   ROS_INFO("done map path");
 }
 
 double FindPositions::calculatePath(double ax, double ay, double bx, double by){
  // ROS_INFO("calculate len..");
-  alignas(64) float fupperbound;
-  fupperbound = static_cast<float>(DIST_HIGH);
-  
-  omp_lock_t m_mplock;
   GlobalPlanningHandler o_gph( *mpo_costmap );
     
   int tid;
@@ -243,21 +238,15 @@ double FindPositions::calculatePath(double ax, double ay, double bx, double by){
   geometry_msgs::PoseStamped start = StampedPosefromSE2( ax, ay, 0.f );
   start.header.frame_id = "map";
   
-  omp_set_num_threads(16);
-  omp_init_lock(&m_mplock);
-  
   std::vector<geometry_msgs::PoseStamped> plan;
-      
-  tid = omp_get_thread_num();
-  float fendpot;
+  
   o_gph.reinitialization();
       
   geometry_msgs::PoseStamped goal = StampedPosefromSE2( bx, by, 0.f );
   goal.header.frame_id = "map" ;
       
-  //bool bplansuccess = o_gph.makePlan(tid, fupperbound, true, start, goal, plan, fendpot);
   bool bplansuccess = o_gph.makePlan(start, goal, plan);
-
+      
   //caclulate path length..//
   if(!bplansuccess){
     ROS_INFO("couldnt find a path..");
@@ -322,7 +311,31 @@ void FindPositions::checkRealPath(){
       ROS_INFO("x: %lf, y: %lf", v[i][j][0], v[i][j][1]);
     }
   }
+  ///////make map test.txt to isualize map////////////
+  /*
+  ofstream ofile;
+  ofile.open("/home/ej/test.txt");
   
+  ROS_INFO("file open?: %d", ofile.is_open());
+  
+  unsigned char* testmap = this->mpo_costmap->getCharMap() ;
+  for(uint32_t ridx = 0; ridx < this->map_height; ridx++){
+    for(uint32_t cidx=0; cidx < this->map_width; cidx++){
+      uint32_t idx = ridx * this->map_width + cidx ;
+      if (ofile.is_open()) {
+        ofile <<static_cast<unsigned>(testmap[idx]) << ", ";
+        cout <<static_cast<unsigned>(testmap[idx])<< ", ";
+      }
+    }
+  }
+  
+  ofile.close();
+  *////////////////////////////////////////////////////
+  
+  
+  
+  /*
+  ROS_INFO("find near node");
   if(v.size()>1){
     vector<vector<int>> near_node(v.size());
     vector<vector<array<double,2>>> near_position(v.size());
@@ -369,7 +382,7 @@ void FindPositions::checkRealPath(){
       }
     }
   }
-  
+  */
   ////ej_visual 
   for(int i=0;i<v.size(); i++){
     ROS_INFO("Graph node: %d", i);
@@ -388,13 +401,15 @@ void FindPositions::checkRealPath(){
       ////
     }
   }
-  
+ 
   ////ej_visual
   m_pathPub.publish(m_path_points);
   m_pathPub.publish(path_line);
   m_wayPointsPub.publish(m_points);
-  m_wayPointsPub.publish(line_strip);
+  m_wayPointsPub.publish(line_strip); 
+  
   ////
+  //*/
   //ROS_INFO("Sequence: %d, %d\n", i, next_idx);
 }
 
