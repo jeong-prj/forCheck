@@ -45,7 +45,7 @@ namespace find_positions
 GlobalPlanningHandler::GlobalPlanningHandler( ):
 robot_base_frame_("base_link"),
 global_frame_("map"),
-mb_initialized(false), mb_allow_unknown(false), mb_visualize_potential(false),
+mb_initialized(false), mb_allow_unknown(true), mb_visualize_potential(false),
 mf_tolerance(0.0),
 mp_cost_translation_table(NULL)
 {
@@ -56,7 +56,7 @@ mp_cost_translation_table(NULL)
 GlobalPlanningHandler::GlobalPlanningHandler( costmap_2d::Costmap2D &ocostmap ):
 robot_base_frame_("base_link"),
 global_frame_("map"),
-mb_initialized(false), mb_allow_unknown(false), mb_visualize_potential(false),
+mb_initialized(false), mb_allow_unknown(true), mb_visualize_potential(false),
 mf_tolerance(0.0),
 mp_cost_translation_table(NULL)
 {
@@ -125,7 +125,7 @@ void GlobalPlanningHandler::reinitialization(  )
 	robot_base_frame_ = string("base_link");
 	global_frame_ = string("map");
 //	mb_initialized = false;
-	mb_allow_unknown = false;
+	mb_allow_unknown = true;
 	mb_visualize_potential = false;
 	mf_tolerance = 0.0;
 
