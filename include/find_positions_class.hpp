@@ -179,6 +179,8 @@ protected:
   vector<array<int,2>> waypoints;
   
   costmap_2d::Costmap2D* mpo_costmap;
+
+  uint8_t* mp_cost_translation_table;
 };
   
 }
