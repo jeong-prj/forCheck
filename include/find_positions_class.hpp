@@ -81,28 +81,42 @@ public:
     m_points.lifetime = ros::Duration();
     
     ///////print path
-    m_path_points.header.frame_id = path_line.header.frame_id= "map";
-    m_path_points.header.stamp = path_line.header.stamp = ros::Time(0);
-    m_path_points.ns = path_line.ns = "way_apath";
+    m_path_points.header.frame_id = "map";
+    m_path_points.header.stamp = ros::Time(0);
+    m_path_points.ns = "way_apath";
     m_path_points.id=2000;
     m_path_points.type=visualization_msgs::Marker::POINTS;
-    path_line.type=visualization_msgs::Marker::LINE_STRIP;
     
-    m_path_points.action = path_line.action =visualization_msgs::Marker::ADD;
-    m_path_points.pose.orientation.w = path_line.pose.orientation.w =1.0;
+    m_path_points.action = visualization_msgs::Marker::ADD;
+    m_path_points.pose.orientation.w = 1.0;
     
     m_path_points.scale.x = 0.05;
     m_path_points.scale.y = 0.05;
-    
-    path_line.scale.x = 0.02;
 
     m_path_points.color.g = 1.0f;
     m_path_points.color.a = 1.0;
     
-    path_line.color.g=1.0f;
-    path_line.color.a=1.0;
-    
     m_path_points.lifetime = ros::Duration(); 
+    
+    //tsp solver result 2m
+    tsp_points.header.frame_id = "map";
+    tsp_points.header.stamp = ros::Time(0);
+    tsp_points.ns = "way_apath";
+    tsp_points.id=3000;
+    tsp_points.type=visualization_msgs::Marker::POINTS;
+    
+    tsp_points.action = visualization_msgs::Marker::ADD;
+    tsp_points.pose.orientation.w = 1.0;
+    
+    tsp_points.scale.x = 0.08;
+    tsp_points.scale.y = 0.08;
+
+    tsp_points.color.r = 1.0f;
+    tsp_points.color.a = 1.0;
+    
+    tsp_points.lifetime = ros::Duration(); 
+    
+    
   }
   
   geometry_msgs::PoseStamped StampedPosefromSE2( const float& x, const float& y, const float& yaw_radian ){
@@ -139,10 +153,11 @@ public:
   void writeDataFile (vector<array<int,2>> positions);
   ////void solving_tsp_concorde(vector<int> * tour, int flag);
   void solving_tsp_concorde(int flag);
-  void padding(int pose, int siz);
+  void padding(int pose, int siz, int ch);
   ////void findWaypointsDistance(vector<int> *tour);
   void findWaypointsDistance(int *tour);
   void mapCallback(const nav_msgs::OccupancyGrid::ConstPtr& msg);
+  void globalCostmapCallBack(const nav_msgs::OccupancyGrid::ConstPtr& msg ) ;
   
   //int eraseInvalidByDist();
   //int bfs(int node_size, vector<int>* graph, vector<int>& sequence);
@@ -160,26 +175,31 @@ protected:
   
   ros::NodeHandle m_nh;
   
-  ros::Subscriber m_gridmapsub;
-  ros::Publisher m_wayPointsPub;
-  ros::Publisher m_pathPub;
+  ros::Subscriber m_gridmapsub, m_globalCostmapSub;
+  ros::Publisher m_wayPointsPub, m_pathPub, m_tspPointsPub;
   
   TSP::TSPSolver m_TSPSolver;
   int map_width;
   int map_height;
   double map_resolution;
   array<double, 2> gridmap_origin_pose;
+  
   vector<signed char> origin_map;
   vector<signed char> map_flags;
+  vector<signed char> map_for_path;
+  
   vector<array<double,2>> waypointsWorld;
   //ej_marker
+  visualization_msgs::Marker tsp_points;
   visualization_msgs::Marker m_points, line_strip;
-  visualization_msgs::Marker m_path_points, path_line;
+  visualization_msgs::Marker m_path_points;
   vector<array<int,2>> middles;
   vector<array<int,2>> waypoints;
   
+  nav_msgs::OccupancyGrid m_globalcostmap ;
+	int m_globalcostmap_rows ;
+	int m_globalcostmap_cols ;
   costmap_2d::Costmap2D* mpo_costmap;
-
   uint8_t* mp_cost_translation_table;
 };
   
