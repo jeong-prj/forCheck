@@ -280,6 +280,7 @@ ROS_WARN("GlobalPlanningHandler::makePlan() is called to find a plan from (%f %f
 //ROS_INFO("setting planner nav arr w/ cellsizes: %d %d\n",mp_costmap->getSizeInCellsX(), mp_costmap->getSizeInCellsY());
     planner_->setNavArr(m_costmap.getSizeInCellsX(), m_costmap.getSizeInCellsY());
 //ROS_INFO("setting planner costmap \n");
+    
     planner_->setEqGridCostmap(m_costmap.getCharMap(), mb_allow_unknown);
     //planner_->setCostmap(m_costmap.getCharMap(), true, mb_allow_unknown);
 //costmap_->saveMap("/home/hankm/catkin_ws/src/frontier_detector/launch/cstmap.dat");

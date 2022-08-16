@@ -296,13 +296,15 @@ namespace navfn {
 
       }
     }
+    
 
   void
     NavFn::setEqGridCostmap(const COSTTYPE *cmap, bool allow_unknown)
     {
-	  std::ofstream ofile;
-	  ofile.open("/home/glab/test.txt");
-	  ROS_INFO("file open?: %d", ofile.is_open());
+      std::ofstream ofile;
+	  ofile.open("/home/ej/test.txt");
+	  //ROS_INFO("file open?: %d", ofile.is_open());
+      //vector<static_cast<unsigned>> map_check;
 	  COSTTYPE *cm = costarr;
 		for (int i=0; i<ny; i++)
 		{
@@ -315,29 +317,22 @@ namespace navfn {
 			// values in range 0 to 252 -> values from COST_NEUTRAL to COST_OBS_ROS.
 			*cm = COST_OBS;
 			int v = *cmap;
-			if (v < 70 ) //COST_OBS_ROS-180 ) // 80 ~ 254  ==> OBS  // 251 ~ 254 ===> OBS
-			{
+			if (v < 66)// COST_OBS_ROS-2 ) // 251 ~ 254  ==> OBS
+			{//66
 			  *cm = 50;
 			}
 			else if(v == COST_UNKNOWN_ROS && allow_unknown)
 			{
 			  *cm = 50;
 			}
+			
 			if (ofile.is_open()) {
 				ofile <<static_cast<unsigned>(*cm) << ", ";
-				std::cout <<static_cast<unsigned>(*cm)<< ", ";
 			}
 		  }
 		}
-
-
+		
 		ofile.close();
-
-		//
-//		for()
-//			for()
-//				ofstream dldld <<
-
     }
 
 

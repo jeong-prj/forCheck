@@ -5,8 +5,10 @@ namespace find_positions
 
 FindPositions::FindPositions(){
   m_wayPointsPub = m_nh.advertise<visualization_msgs::Marker>("way_point_marker", 10000);
+  m_tspPointsPub = m_nh.advertise<visualization_msgs::Marker>("tsp_marker", 10000);
   m_pathPub = m_nh.advertise<visualization_msgs::Marker>("path_marker", 10000);
   m_gridmapsub = m_nh.subscribe<nav_msgs::OccupancyGrid>("m_gridmap_fin", 1000, &FindPositions::mapCallback, this); 
+  m_globalCostmapSub = m_nh.subscribe("move_base_node/global_costmap/costmap", 100, &FindPositions::globalCostmapCallBack, this );
   
   if (mp_cost_translation_table == NULL){
     mp_cost_translation_table = new uint8_t[101];
@@ -105,7 +107,7 @@ void FindPositions::solving_tsp_concorde(int flag){
                               m_TSPSolver.in_val, &m_TSPSolver.optval, &m_TSPSolver.success,
                               &m_TSPSolver.foundtour, m_TSPSolver.name, m_TSPSolver.timebound,
                               &m_TSPSolver.hit_timebound, m_TSPSolver.silent, &rstate);
-  //geometry_msgs::Point p;
+  //
   
   cout <<m_TSPSolver.ncount<<endl;
   
@@ -115,14 +117,14 @@ void FindPositions::solving_tsp_concorde(int flag){
       int x=waypoints[turn][0], y=waypoints[turn][1];
       array<double, 2> world_position = gridmapToworld(x,y);
       waypointsWorld.push_back({world_position[0], world_position[1]});
-      
-      //p.x=world_position[0]; p.y=world_position[1]; p.z=0.0;
+      geometry_msgs::Point p;
+      p.x=world_position[0]; p.y=world_position[1]; p.z=0.0;
         
-      //m_points.points.push_back(p);
+      tsp_points.points.push_back(p);
       //line_strip.points.push_back(p);
     }
     
-    //m_wayPointsPub.publish(m_points);
+    m_tspPointsPub.publish(tsp_points);
     //m_wayPointsPub.publish(line_strip);
     ////eraseInvalidByDist();
     //eraseInvalidByWall();
@@ -138,7 +140,7 @@ void FindPositions::solving_tsp_concorde(int flag){
   CC_IFFREE (m_TSPSolver.out_tour, int);
 }
 
-void FindPositions::padding(int pose, int siz){
+void FindPositions::padding(int pose, int siz, int ch){
   array<int, 2> grid = getPoseTo2D(pose);
   for(int i=grid[0]-siz;i<=grid[0]+siz;i++){
     for(int j=grid[1]-siz;j<=grid[1]+siz;j++){
@@ -147,7 +149,13 @@ void FindPositions::padding(int pose, int siz){
       }
       int flag_pose=get2DToPose(i, j);
       if(origin_map[flag_pose]==0){
-        map_flags[flag_pose]=2;
+        if(ch==1){
+          map_flags[flag_pose]=2;
+        }
+        else{
+          map_for_path[flag_pose]=100;
+        }
+        
       }
     }
   }
@@ -159,6 +167,7 @@ void FindPositions::mapCallback(const nav_msgs::OccupancyGrid::ConstPtr& msg){
   
   this->map_flags = m_gridmap.data;
   this->origin_map = m_gridmap.data;
+  this->map_for_path = m_gridmap.data;
   this->map_resolution = m_gridmap.info.resolution;
   this->map_width = m_gridmap.info.width;
   this->map_height = m_gridmap.info.height;
@@ -169,7 +178,8 @@ void FindPositions::mapCallback(const nav_msgs::OccupancyGrid::ConstPtr& msg){
   
   for(int i=0; i<origin_map.size();i++){
     if(origin_map[i]!=0){
-      padding(i, 9);
+      padding(i, 9, 1);
+      padding(i, 5, 2);
     }
   }
   
@@ -183,8 +193,16 @@ void FindPositions::mapCallback(const nav_msgs::OccupancyGrid::ConstPtr& msg){
       }
     }
   }
-  
 }
+
+void FindPositions::globalCostmapCallBack(const nav_msgs::OccupancyGrid::ConstPtr& msg){
+	//const std::unique_lock<mutex> lock(mutex_costmap);
+//ROS_INFO("cm callback is called \n");
+	m_globalcostmap = *msg ;
+	m_globalcostmap_rows = m_globalcostmap.info.height ;
+	m_globalcostmap_cols = m_globalcostmap.info.width ;
+}
+
 
 ////void FindPositions::findWaypointsDistance(vector<int> *tour){
 void FindPositions::findWaypointsDistance(int* tour){
@@ -197,7 +215,7 @@ void FindPositions::findWaypointsDistance(int* tour){
     if(map_flags[pose]==0){
       waypoints.push_back({x, y});
       
-      padding(pose, 32);
+      padding(pose, 32, 1);
     }
   }
 }
@@ -211,6 +229,9 @@ void FindPositions::findWaypointsDistance(int* tour){
 
 void FindPositions::makeMapForPath(){
   ROS_INFO("make map for path");
+  std::vector<signed char> cmdata;
+  cmdata  =m_globalcostmap.data;
+  
   mpo_costmap = new costmap_2d::Costmap2D();
   
   this->mpo_costmap->resizeMap( this->map_width, this->map_height, this->map_resolution, this->gridmap_origin_pose[0], this->gridmap_origin_pose[1] );
@@ -221,7 +242,7 @@ void FindPositions::makeMapForPath(){
   for(uint32_t ridx = 0; ridx < this->map_height; ridx++){
     for(uint32_t cidx=0; cidx < this->map_width; cidx++){
       uint32_t idx = ridx * this->map_width + cidx ;
-      signed char val = this->origin_map[idx];
+      signed char val = map_for_path[idx];
       pmap[idx] = val < 0 ? 255 : mp_cost_translation_table[val];
     }
   }
@@ -232,19 +253,16 @@ void FindPositions::makeMapForPath(){
 double FindPositions::calculatePath(double ax, double ay, double bx, double by){
  // ROS_INFO("calculate len..");
   GlobalPlanningHandler o_gph( *mpo_costmap );
-    
-  int tid;
+  o_gph.reinitialization();
+  
+  std::vector<geometry_msgs::PoseStamped> plan;
   
   geometry_msgs::PoseStamped start = StampedPosefromSE2( ax, ay, 0.f );
   start.header.frame_id = "map";
   
-  std::vector<geometry_msgs::PoseStamped> plan;
-  
-  o_gph.reinitialization();
-      
   geometry_msgs::PoseStamped goal = StampedPosefromSE2( bx, by, 0.f );
   goal.header.frame_id = "map" ;
-      
+
   bool bplansuccess = o_gph.makePlan(start, goal, plan);
       
   //caclulate path length..//
@@ -265,31 +283,51 @@ double FindPositions::calculatePath(double ax, double ay, double bx, double by){
         
     path_len += distance(pose_ax, pose_ay, pose_bx, pose_by);
     
+    if(path_len>=2.5){
+      result_waypoints.push_back({pose_bx, pose_by});
+      path_len=0;
+    }
+    
     p.x=pose_bx; p.y=pose_by; p.z=0.0;
     m_path_points.points.push_back(p);
-    path_line.points.push_back(p);
   }
   
   return path_len;
 }
 
 void FindPositions::checkRealPath(){
-  vector<array<double,2>> way_nomi;
-  for (int i=0; i < waypointsWorld.size(); i++){
-    way_nomi.push_back(waypointsWorld[i]);
-    ROS_INFO("x: %lf, y: %lf", way_nomi[i][0], way_nomi[i][1]);
-  }
-  
   ROS_INFO("Function: check real path %lu", waypointsWorld.size());
   
+  makeMapForPath();
+  //cut the invalid sequence.
+  //change the sequence 
+  //i i+1 to i-ch i
+  int ch=1;
+  for(int i=0;i<waypointsWorld.size(); i++){
+    result_waypoints.push_back(waypointsWorld[i]);
+    int pre_i= (i-ch)==-1? waypointsWorld.size()-1:i-ch;
+    double path_len = calculatePath(waypointsWorld[pre_i][0], waypointsWorld[pre_i][1], waypointsWorld[i][0], waypointsWorld[i][1]);
+    //check the length is under 3.0 m (first just ???)
+    if(path_len==0.0){
+      ROS_INFO("path is not found..");
+      //do it something.
+      ch++;
+    }
+    else{
+      ch=1;
+    }
+  }
+  
+  /*
   vector<vector<array<double,2>>> v;
   
   makeMapForPath();
-  //int cur_idx = 0;
+  //cut the invalid sequence.
   int flag=0;
   v.push_back({waypointsWorld[0]});
-  for(int i=0;i<waypointsWorld.size()-1; i++){
-    double path_len = calculatePath(waypointsWorld[i][0], waypointsWorld[i][1], waypointsWorld[i+1][0], waypointsWorld[i+1][1]);
+  for(int i=0;i<waypointsWorld.size(); i++){
+    int next_i= i==waypointsWorld.size()-1? 0:i+1;
+    double path_len = calculatePath(waypointsWorld[i][0], waypointsWorld[i][1], waypointsWorld[next_i][0], waypointsWorld[next_i][1]);
     //check the length is under 3.0 m (first just ???)
     if(path_len==0.0){
       ROS_INFO("path is not found..");
@@ -297,13 +335,34 @@ void FindPositions::checkRealPath(){
     }
     else if(path_len>=3.0){
       flag++;
-      v.push_back({waypointsWorld[i+1]});
+      v.push_back({waypointsWorld[next_i]});
     }
     else{
-      v[flag].push_back(waypointsWorld[i+1]);
+      v[flag].push_back(waypointsWorld[next_i]);
+    }
+  }
+  /*
+  ROS_INFO("Graph size: %lu", v.size());
+  for(int i=0;i<v.size(); i++){
+    ROS_INFO("Graph node: %d", i);
+    for(int j=0;j<v[i].size(); j++){
+      ROS_INFO("x: %lf, y: %lf", v[i][j][0], v[i][j][1]);
+    }
+    cout<<endl<<endl;
+  }
+  */
+  /*
+  //make loop 
+  if(v.size()>1){
+    if(v[0][0][0]==v.back().back()[0]
+      &&v[0][0][1]==v.back().back()[1]){
+      v.back().pop_back();
+      v[0].insert(v[0].begin(), v.back().begin(), v.back().end());
+      v.pop_back();
     }
   }
   
+  //print the graph size and each waypoints 
   ROS_INFO("Graph size: %lu", v.size());
   for(int i=0;i<v.size(); i++){
     ROS_INFO("Graph node: %d", i);
@@ -311,7 +370,106 @@ void FindPositions::checkRealPath(){
       ROS_INFO("x: %lf, y: %lf", v[i][j][0], v[i][j][1]);
     }
   }
-  ///////make map test.txt to isualize map////////////
+  
+  ROS_INFO("find near node");
+  for(int i=0; i<v[0].size();i++){
+    result_waypoints.push_back(v[0][i]);
+  }
+  if(v.size()>1){
+    int node_idx=0;
+    
+    //vector<vector<array<double,2>>> v_check;
+    //v_check.assign(v.begin(), v.end());
+    
+    /////ej_find_connected_graph
+    while(!v.empty()){
+      ROS_INFO("Node index is %d", node_idx);
+      for(int i=0;i<v[node_idx].size(); i++){
+        //node_idx for target
+        int near=0;
+        int near_node=-1;
+        int near_wp=-1;
+        double near_len=DBL_MAX;
+        for(int n=0;n<v.size(); n++){
+          //check the n'th index node in v_check
+          if(near==1||node_idx==n) break;
+          for(int m=0;m<v[n].size(); m++){
+            //m: waypoint's index
+            double path_len_ch = calculatePath(v[node_idx][i][0], v[node_idx][i][1],
+                                            v[n][m][0], v[n][m][1]);
+            if(path_len_ch<3.0){
+              for(int ii=m; ii<v[n].size();ii++){
+                result_waypoints.push_back(v[n][ii]);
+              }
+              for(int ii=m-1; ii>=0;ii--){
+                result_waypoints.push_back(v[n][ii]);
+              }
+              vector<vector<array<double,2>>>::iterator nth_1 = v.begin() + node_idx;
+              v.erase(nth_1);
+              delete *nth_1;
+              node_idx = n;
+              near=1;
+              break;
+            }
+            if(path_len_ch<near_len){
+              near_len=path_len_ch;
+              near_node=n;
+              near_wp=m;
+            }
+          }
+        }
+        if(near!=1){
+          for(int ii=near_wp; ii<v[0].size();ii++){
+            result_waypoints.push_back(v[near_node][ii]);
+          }
+          for(int ii=near_wp-1; ii>=0;ii--){
+            result_waypoints.push_back(v[near_node][ii]);
+          }
+          vector<vector<array<double,2>>>::iterator nth_2 = v.begin() + node_idx;
+          v.erase(nth_2);
+          delete *nth_2;
+          node_idx = near_node;
+          near=1;
+        }
+      }
+    }
+  }
+  */
+  
+  ////ej_visual 
+  /*
+  for(int i=0;i<v.size(); i++){
+    //ROS_INFO("Graph node: %d", i);
+    for(int j=0;j<v[i].size(); j++){
+      //ROS_INFO("x: %lf, y: %lf", v[i][j][0], v[i][j][1]);
+      ////ej_visual
+      geometry_msgs::Point p;
+      std_msgs::ColorRGBA p_c;
+      
+      p.x=v[i][j][0]; p.y=v[i][j][1]; p.z=0.0;
+      p_c.a = (j==0||j==v[i].size()-1) ? 0.0 : 1.0;
+      p_c.b = (j==0||j==v[i].size()-1) ? 0.0 : 1.0;
+      m_points.points.push_back(p);
+      line_strip.colors.push_back(p_c);
+      line_strip.points.push_back(p);
+      ////
+    }
+  }
+  */
+  ROS_INFO("result_waypoints: size:: %lu", result_waypoints.size());
+  for(int i=0;i<result_waypoints.size(); i++){
+    geometry_msgs::Point p;
+      
+    p.x=result_waypoints[i][0]; p.y=result_waypoints[i][1]; p.z=0.0;
+    m_points.points.push_back(p);
+    line_strip.points.push_back(p);
+  }
+ 
+  ////ej_visual
+  m_pathPub.publish(m_path_points);
+  m_wayPointsPub.publish(m_points);
+  m_wayPointsPub.publish(line_strip);
+    ///////make map test.txt to isualize map////////////
   /*
   ofstream ofile;
   ofile.open("/home/ej/test.txt");
@@ -331,83 +489,6 @@ void FindPositions::checkRealPath(){
   
   ofile.close();
   *////////////////////////////////////////////////////
-  
-  
-  
-  /*
-  ROS_INFO("find near node");
-  if(v.size()>1){
-    vector<vector<int>> near_node(v.size());
-    vector<vector<array<double,2>>> near_position(v.size());
-    vector<vector<double>> near_length(v.size());
-    /////ej_find_connected_graph
-    for(int i=0;i<v.size(); i++){
-      int near_exist=0;
-      int tmp_node=0;
-      array<double,2> tmp_position={0, 0};
-      double tmp_len = DBL_MAX;
-      for(int j=0;j<v[i].size(); j++){
-        
-        for(int n=0;i<v.size(); i++){
-          if(i==n) continue;
-          for(int m=0;j<v[n].size(); j++){
-            double path_len = calculatePath(v[i][j][1], v[i][j][0], v[n][m][0], v[n][m][1]);
-            if(path_len<3.0){
-              near_node[i].push_back(n);
-              near_position[i].push_back(v[n][m]);
-              near_length[i].push_back(path_len);
-              near_exist=1;
-              break;
-            }
-            if(tmp_len>path_len){
-              tmp_node = n;
-              tmp_position[0]=v[n][m][0]; tmp_position[1]=v[n][m][1];
-              tmp_len=path_len;
-            }
-          }
-        }
-      }
-      //near node doesnt exist..
-      if(near_exist==0){
-        near_node[i].push_back(tmp_node);
-        near_position[i].push_back(tmp_position);
-        near_length[i].push_back(tmp_len);
-      }
-    }
-    
-    for(int i=0;i<near_node.size();i++){
-      ROS_INFO("node: %d", i);
-      for(int j=0;j<near_node[i].size();j++){
-        ROS_INFO("near node: %d", near_node[i][j]);
-      }
-    }
-  }
-  */
-  ////ej_visual 
-  for(int i=0;i<v.size(); i++){
-    ROS_INFO("Graph node: %d", i);
-    for(int j=0;j<v[i].size(); j++){
-      ROS_INFO("x: %lf, y: %lf", v[i][j][0], v[i][j][1]);
-      ////ej_visual
-      geometry_msgs::Point p;
-      std_msgs::ColorRGBA p_c;
-      
-      p.x=v[i][j][0]; p.y=v[i][j][1]; p.z=0.0;
-      p_c.a = (j==0||j==v[i].size()-1) ? 0.0 : 1.0;
-      p_c.b = (j==0||j==v[i].size()-1) ? 0.0 : 1.0;
-      m_points.points.push_back(p);
-      line_strip.colors.push_back(p_c);
-      line_strip.points.push_back(p);
-      ////
-    }
-  }
- 
-  ////ej_visual
-  m_pathPub.publish(m_path_points);
-  m_pathPub.publish(path_line);
-  m_wayPointsPub.publish(m_points);
-  m_wayPointsPub.publish(line_strip); 
-  
   ////
   //*/
   //ROS_INFO("Sequence: %d, %d\n", i, next_idx);
