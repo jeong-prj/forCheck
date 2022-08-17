@@ -108,13 +108,32 @@ public:
     tsp_points.action = visualization_msgs::Marker::ADD;
     tsp_points.pose.orientation.w = 1.0;
     
-    tsp_points.scale.x = 0.08;
-    tsp_points.scale.y = 0.08;
+    tsp_points.scale.x = 0.15;
+    tsp_points.scale.y = 0.15;
 
     tsp_points.color.r = 1.0f;
     tsp_points.color.a = 1.0;
     
     tsp_points.lifetime = ros::Duration(); 
+    
+    //added point
+    add_points.header.frame_id = "map";
+    add_points.header.stamp = ros::Time(0);
+    add_points.ns = "way_apath";
+    add_points.id=3000;
+    add_points.type=visualization_msgs::Marker::POINTS;
+    
+    add_points.action = visualization_msgs::Marker::ADD;
+    add_points.pose.orientation.w = 1.0;
+    
+    add_points.scale.x = 0.15;
+    add_points.scale.y = 0.15;
+
+    add_points.color.r = 1.0f;
+    add_points.color.g = 1.0f;
+    add_points.color.a = 1.0;
+    
+    add_points.lifetime = ros::Duration(); 
     
     
   }
@@ -176,7 +195,7 @@ protected:
   ros::NodeHandle m_nh;
   
   ros::Subscriber m_gridmapsub, m_globalCostmapSub;
-  ros::Publisher m_wayPointsPub, m_pathPub, m_tspPointsPub;
+  ros::Publisher m_wayPointsPub, m_pathPub, m_tspPointsPub, m_addPointsPub;
   
   TSP::TSPSolver m_TSPSolver;
   int map_width;
@@ -190,6 +209,7 @@ protected:
   
   vector<array<double,2>> waypointsWorld;
   //ej_marker
+  visualization_msgs::Marker add_points;
   visualization_msgs::Marker tsp_points;
   visualization_msgs::Marker m_points, line_strip;
   visualization_msgs::Marker m_path_points;
