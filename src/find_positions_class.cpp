@@ -6,6 +6,7 @@ namespace find_positions
 FindPositions::FindPositions(){
   m_wayPointsPub = m_nh.advertise<visualization_msgs::Marker>("way_point_marker", 10000);
   m_tspPointsPub = m_nh.advertise<visualization_msgs::Marker>("tsp_marker", 10000);
+  m_addPointsPub = m_nh.advertise<visualization_msgs::Marker>("added_marker", 10000);
   m_pathPub = m_nh.advertise<visualization_msgs::Marker>("path_marker", 10000);
   m_gridmapsub = m_nh.subscribe<nav_msgs::OccupancyGrid>("m_gridmap_fin", 1000, &FindPositions::mapCallback, this); 
   m_globalCostmapSub = m_nh.subscribe("move_base_node/global_costmap/costmap", 100, &FindPositions::globalCostmapCallBack, this );
@@ -272,6 +273,7 @@ double FindPositions::calculatePath(double ax, double ay, double bx, double by){
   }
   
   double path_len=0;
+  int add_node=0;
   geometry_msgs::Point p;
   p.x=plan[0].pose.position.x; p.y=plan[0].pose.position.y; p.z=0.0;
   m_path_points.points.push_back(p);
@@ -284,7 +286,8 @@ double FindPositions::calculatePath(double ax, double ay, double bx, double by){
     path_len += distance(pose_ax, pose_ay, pose_bx, pose_by);
     
     if(path_len>=2.5){
-      result_waypoints.push_back({pose_bx, pose_by});
+      //result_waypoints.push_back({pose_bx, pose_by});
+      add_node++;
       path_len=0;
     }
     
@@ -292,7 +295,16 @@ double FindPositions::calculatePath(double ax, double ay, double bx, double by){
     m_path_points.points.push_back(p);
   }
   
-  return path_len;
+  int equi_dist=plan.size()/(add_node+1);
+  for(int i=1;i<=add_node;i++){
+    double add_x=plan[equi_dist*i].pose.position.x;
+    double add_y=plan[equi_dist*i].pose.position.y;
+    result_waypoints.push_back({add_x, add_y});
+    p.x=add_x; p.y=add_y; p.z=0.0;
+    add_points.points.push_back(p);
+  }
+  
+  return path_len+(add_node*2.5);
 }
 
 void FindPositions::checkRealPath(){
@@ -304,9 +316,9 @@ void FindPositions::checkRealPath(){
   //i i+1 to i-ch i
   int ch=1;
   for(int i=0;i<waypointsWorld.size(); i++){
-    result_waypoints.push_back(waypointsWorld[i]);
     int pre_i= (i-ch)==-1? waypointsWorld.size()-1:i-ch;
-    double path_len = calculatePath(waypointsWorld[pre_i][0], waypointsWorld[pre_i][1], waypointsWorld[i][0], waypointsWorld[i][1]);
+    double path_len = calculatePath(waypointsWorld[pre_i][0], waypointsWorld[pre_i][1]
+                                    , waypointsWorld[i][0], waypointsWorld[i][1]);
     //check the length is under 3.0 m (first just ???)
     if(path_len==0.0){
       ROS_INFO("path is not found..");
@@ -315,6 +327,7 @@ void FindPositions::checkRealPath(){
     }
     else{
       ch=1;
+      result_waypoints.push_back(waypointsWorld[i]);
     }
   }
   
@@ -466,9 +479,11 @@ void FindPositions::checkRealPath(){
   }
  
   ////ej_visual
+  m_addPointsPub.publish(add_points);
   m_pathPub.publish(m_path_points);
   m_wayPointsPub.publish(m_points);
   m_wayPointsPub.publish(line_strip);
+  
     ///////make map test.txt to isualize map////////////
   /*
   ofstream ofile;
