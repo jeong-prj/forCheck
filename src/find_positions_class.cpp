@@ -251,7 +251,7 @@ void FindPositions::makeMapForPath(){
   ROS_INFO("done map path");
 }
 
-double FindPositions::calculatePath(double ax, double ay, double bx, double by){
+double FindPositions::calculatePath(double ax, double ay, double bx, double by,int mode){
  // ROS_INFO("calculate len..");
   GlobalPlanningHandler o_gph( *mpo_costmap );
   o_gph.reinitialization();
@@ -275,8 +275,10 @@ double FindPositions::calculatePath(double ax, double ay, double bx, double by){
   double path_len=0;
   int add_node=0;
   geometry_msgs::Point p;
-  p.x=plan[0].pose.position.x; p.y=plan[0].pose.position.y; p.z=0.0;
-  m_path_points.points.push_back(p);
+  if(mode==1){
+    p.x=plan[0].pose.position.x; p.y=plan[0].pose.position.y; p.z=0.0;
+    m_path_points.points.push_back(p);
+  }
   for(int k=0;k<plan.size()-1;k++){
     double pose_ax=plan[k].pose.position.x;
     double pose_ay=plan[k].pose.position.y;
@@ -285,25 +287,43 @@ double FindPositions::calculatePath(double ax, double ay, double bx, double by){
         
     path_len += distance(pose_ax, pose_ay, pose_bx, pose_by);
     
-    if(path_len>=2.5){
-      //result_waypoints.push_back({pose_bx, pose_by});
-      add_node++;
-      path_len=0;
+    if(mode==1){
+      if(path_len>=2.5){
+        //result_waypoints.push_back({pose_bx, pose_by});
+        add_node++;
+        path_len=0;
+      }
+      p.x=pose_bx; p.y=pose_by; p.z=0.0;
+      m_path_points.points.push_back(p);
     }
-    
-    p.x=pose_bx; p.y=pose_by; p.z=0.0;
-    m_path_points.points.push_back(p);
   }
   
-  int equi_dist=plan.size()/(add_node+1);
-  for(int i=1;i<=add_node;i++){
-    double add_x=plan[equi_dist*i].pose.position.x;
-    double add_y=plan[equi_dist*i].pose.position.y;
-    result_waypoints.push_back({add_x, add_y});
-    p.x=add_x; p.y=add_y; p.z=0.0;
-    add_points.points.push_back(p);
+  if(mode==1){
+    int equi_dist=plan.size()/(add_node+1);
+    for(int i=1;i<=add_node;i++){
+      double add_x=plan[equi_dist*i].pose.position.x;
+      double add_y=plan[equi_dist*i].pose.position.y;
+      
+      //have visited node under 1.4m than not add node
+      int not_add=0;
+      for(int ch_node=0;ch_node<result_waypoints.size();ch_node++){
+        double ch_x = result_waypoints[ch_node][0];
+        double ch_y = result_waypoints[ch_node][1];
+        if(distance(add_x, add_y, ch_x, ch_y)<1.4){
+          double ch_path = calculatePath(add_x, add_y, ch_x, ch_y, 0);
+          if(ch_path<2.0){
+            not_add=1;
+            break;
+          }
+        }
+      }
+      if(not_add!=1){
+        result_waypoints.push_back({add_x, add_y});
+        p.x=add_x; p.y=add_y; p.z=0.0;
+        add_points.points.push_back(p);
+      }
+    }
   }
-  
   return path_len+(add_node*2.5);
 }
 
@@ -318,8 +338,7 @@ void FindPositions::checkRealPath(){
   for(int i=0;i<waypointsWorld.size(); i++){
     int pre_i= (i-ch)==-1? waypointsWorld.size()-1:i-ch;
     double path_len = calculatePath(waypointsWorld[pre_i][0], waypointsWorld[pre_i][1]
-                                    , waypointsWorld[i][0], waypointsWorld[i][1]);
-    //check the length is under 3.0 m (first just ???)
+                                    , waypointsWorld[i][0], waypointsWorld[i][1], 1);
     if(path_len==0.0){
       ROS_INFO("path is not found..");
       //do it something.
@@ -327,9 +346,26 @@ void FindPositions::checkRealPath(){
     }
     else{
       ch=1;
-      result_waypoints.push_back(waypointsWorld[i]);
+      int not_add=0;
+      for(int ch_node=0;ch_node<result_waypoints.size();ch_node++){
+        double ch_x = result_waypoints[ch_node][0];
+        double ch_y = result_waypoints[ch_node][1];
+        if(distance(waypointsWorld[i][0], waypointsWorld[i][1], ch_x, ch_y)<1.4){
+          double ch_path = calculatePath(waypointsWorld[i][0], waypointsWorld[i][1], ch_x, ch_y, 0);
+          if(ch_path<2.0){
+            not_add=1;
+            break;
+          }
+        }
+      }
+      if(not_add!=1){
+        result_waypoints.push_back(waypointsWorld[i]);
+      }
+      //result_waypoints.push_back(waypointsWorld[i]);
     }
   }
+  
+  
   
   /*
   vector<vector<array<double,2>>> v;
