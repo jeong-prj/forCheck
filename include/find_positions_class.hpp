@@ -19,6 +19,7 @@
 #include <cmath>
 #include <queue>
 #include <array>
+#include <time.h>
 
 //#include <boost/bind.hpp>
 
@@ -181,7 +182,9 @@ public:
   //int eraseInvalidByDist();
   //int bfs(int node_size, vector<int>* graph, vector<int>& sequence);
   void makeMapForPath();
-  double calculatePath(double ax, double ay, double bx, double by);
+  
+  double calculatePath(double ax, double ay, double bx, double by, int mode);
+  int FindFirstNode();
   void checkRealPath();
   int m_mapAvailable = 0;
   

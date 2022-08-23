@@ -216,7 +216,7 @@ void FindPositions::findWaypointsDistance(int* tour){
     if(map_flags[pose]==0){
       waypoints.push_back({x, y});
       
-      padding(pose, 32, 1);
+      padding(pose, 36, 1);
     }
   }
 }
@@ -309,9 +309,9 @@ double FindPositions::calculatePath(double ax, double ay, double bx, double by,i
       for(int ch_node=0;ch_node<result_waypoints.size();ch_node++){
         double ch_x = result_waypoints[ch_node][0];
         double ch_y = result_waypoints[ch_node][1];
-        if(distance(add_x, add_y, ch_x, ch_y)<1.4){
+        if(distance(add_x, add_y, ch_x, ch_y)<1.8){
           double ch_path = calculatePath(add_x, add_y, ch_x, ch_y, 0);
-          if(ch_path<2.0){
+          if(ch_path<2.1){
             not_add=1;
             break;
           }
@@ -327,6 +327,26 @@ double FindPositions::calculatePath(double ax, double ay, double bx, double by,i
   return path_len+(add_node*2.5);
 }
 
+int FindPositions::FindFirstNode(){
+  ROS_INFO("Function find first node..");
+  int node_idx = -1;
+  double nearest_path = DBL_MAX;
+  for(int ch_node=0;ch_node<waypointsWorld.size();ch_node++){
+    double dist_nn = distance(waypointsWorld[ch_node][0], waypointsWorld[ch_node][1], -17.4, 24.5);
+    if(dist_nn<5.0){
+      ROS_INFO("found_node: %d", ch_node);
+      double ch_path = calculatePath(waypointsWorld[ch_node][0], waypointsWorld[ch_node][1], -17.4, 24.5, 0);
+      //if(ch_path<nearest_path){
+      if(dist_nn<nearest_path){
+        nearest_path=dist_nn;
+        node_idx = ch_node;
+      }
+    }
+  }
+  ROS_INFO("start_node: %d", node_idx);
+  return node_idx;
+}
+
 void FindPositions::checkRealPath(){
   ROS_INFO("Function: check real path %lu", waypointsWorld.size());
   
@@ -334,6 +354,40 @@ void FindPositions::checkRealPath(){
   //cut the invalid sequence.
   //change the sequence 
   //i i+1 to i-ch i
+  
+  int start_node=FindFirstNode();
+  int ch=1;
+  for(int i=0;i<waypointsWorld.size(); i++){
+    int pre_i= (start_node+i-ch)==-1? waypointsWorld.size()-1:start_node+i-ch;
+    double path_len = calculatePath(waypointsWorld[pre_i][0], waypointsWorld[pre_i][1]
+                                    , waypointsWorld[i][0], waypointsWorld[i][1], 1);
+    if(path_len==0.0){
+      ROS_INFO("path is not found..");
+      //do it something.
+      ch++;
+    }
+    else{
+      ch=1;
+      int not_add=0;
+      for(int ch_node=0;ch_node<result_waypoints.size();ch_node++){
+        double ch_x = result_waypoints[ch_node][0];
+        double ch_y = result_waypoints[ch_node][1];
+        if(distance(waypointsWorld[i][0], waypointsWorld[i][1], ch_x, ch_y)<1.8){
+          double ch_path = calculatePath(waypointsWorld[i][0], waypointsWorld[i][1], ch_x, ch_y, 0);
+          if(ch_path<2.1){
+            not_add=1;
+            break;
+          }
+        }
+      }
+      if(not_add!=1){
+        result_waypoints.push_back(waypointsWorld[i]);
+      }
+      //result_waypoints.push_back(waypointsWorld[i]);
+    }
+  }
+  
+  /*
   int ch=1;
   for(int i=0;i<waypointsWorld.size(); i++){
     int pre_i= (i-ch)==-1? waypointsWorld.size()-1:i-ch;
@@ -350,9 +404,9 @@ void FindPositions::checkRealPath(){
       for(int ch_node=0;ch_node<result_waypoints.size();ch_node++){
         double ch_x = result_waypoints[ch_node][0];
         double ch_y = result_waypoints[ch_node][1];
-        if(distance(waypointsWorld[i][0], waypointsWorld[i][1], ch_x, ch_y)<1.4){
+        if(distance(waypointsWorld[i][0], waypointsWorld[i][1], ch_x, ch_y)<1.8){
           double ch_path = calculatePath(waypointsWorld[i][0], waypointsWorld[i][1], ch_x, ch_y, 0);
-          if(ch_path<2.0){
+          if(ch_path<2.1){
             not_add=1;
             break;
           }
@@ -364,7 +418,7 @@ void FindPositions::checkRealPath(){
       //result_waypoints.push_back(waypointsWorld[i]);
     }
   }
-  
+  */
   
   
   /*
