@@ -7,16 +7,38 @@ int main(int argc, char **argv){
   actionlib::SimpleActionClient<move_base_msgs::MoveBaseAction> ac("move_base", true);
 
   FindPositions m_fp;
+  system("adb connect 10.77.80.203");
   
-  while(!m_fp.m_mapAvailable){
+  while(!m_fp.m_mapAvailable || !m_fp.m_sposeAvailable){
     ros::spinOnce();
   }
+  system("adb connect 10.77.80.203");
+  
+  m_fp.totalStartTime = ros::WallTime::now();
+  
+  
   m_fp.setMarker();
   
-  m_fp.solving_tsp_concorde(0);
+  m_fp.tsp1StartTime = ros::WallTime::now();
+  m_fp.solving_tsp_concorde(0);//15sec
+  m_fp.tsp1EndTime = ros::WallTime::now();
   
-  m_fp.solving_tsp_concorde(1);
+  m_fp.tsp1Time = m_fp.takeATime(m_fp.tsp1StartTime, m_fp.tsp1EndTime);
   
+  ROS_INFO("++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++\n First tsp time: %lf (ms)\n ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++\n", m_fp.tsp1Time);
+  
+  m_fp.tsp2StartTime = ros::WallTime::now();
+  m_fp.solving_tsp_concorde(1);//30sec
+  m_fp.tsp2EndTime = ros::WallTime::now();
+  
+  m_fp.tsp2Time = m_fp.takeATime(m_fp.tsp2StartTime, m_fp.tsp2EndTime);
+  
+  ROS_INFO("++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++\n Second tsp time: %lf (ms)\n ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++\n", m_fp.tsp2Time);
+
+  //clock_t start_0=clock();
+  //while((clock()-start_0)/CLOCKS_PER_SEC <= 10) ;//10sec
+  
+  m_fp.scanningStartTime = ros::WallTime::now();
   for(int i = 0; i < m_fp.result_waypoints.size(); i++){
     ROS_INFO("Send goal %d", i+1);
     //cout<<"node_waypoints: "<<m_fp.result_waypoints[i][0]<<", " <<m_fp.result_waypoints[i][1]<<endl;
@@ -35,24 +57,34 @@ int main(int argc, char **argv){
     ac.waitForResult();
     if(ac.getState() == actionlib::SimpleClientGoalState::SUCCEEDED){
       ROS_INFO("The robot has arrived at the goal location");
-      ROS_INFO("10 sec 1_s");
       clock_t start_1=clock();
-      while((clock()-start_1)/CLOCKS_PER_SEC <= 10) ;
-      //system("adb shell input tap 800 2300");
-      ROS_INFO("10 sec 1_e");
+      while((clock()-start_1)/CLOCKS_PER_SEC <= 2) ;
+      
+      ROS_INFO("start scanning,,,");
+      system("adb shell input tap 800 2300");
+      
       //32 is the best time. I think,,
+      //ros::Duration(32).sleep();
       clock_t start_2=clock();
-      while((clock()-start_2)/CLOCKS_PER_SEC <= 10) ;
-      ROS_INFO("10 sec 2_e");
-      //ros::Duration(5).sleep();
+      while((clock()-start_2)/CLOCKS_PER_SEC <= 35) ;
     }
     else{
       ROS_INFO("The robot failed to reach the goal location for some reason");
     }
   }
   
+  m_fp.scanningEndTime = ros::WallTime::now();
+  
+  m_fp.scanningTime = m_fp.takeATime(m_fp.scanningStartTime, m_fp.scanningEndTime);
+  
+  ROS_INFO("++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++\n Scanning time: %lf (ms)\n ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++\n", m_fp.scanningTime);
+  
+  m_fp.totalEndTime = ros::WallTime::now();
+  m_fp.totalTime = m_fp.takeATime(m_fp.totalStartTime, m_fp.totalEndTime);
+  
   //Print the waypoints on the map
   ROS_INFO("done find_positions_node");
+  ROS_INFO("++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ \n total time: %lf ms \n tsp1 time: %lf ms\n tsp2 time: %lf ms\n scanning time: %lf ms\n+++++++++++++++++++++++++++++++++++++++++++++++++++++++++", m_fp.totalTime, m_fp.tsp1Time, m_fp.tsp2Time, m_fp.scanningTime);
   
   return 0;
 }
