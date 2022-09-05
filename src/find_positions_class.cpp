@@ -5,11 +5,13 @@ namespace find_positions
 
 FindPositions::FindPositions(){
   m_wayPointsPub = m_nh.advertise<visualization_msgs::Marker>("way_point_marker", 10000);
-  m_tspPointsPub = m_nh.advertise<visualization_msgs::Marker>("tsp_marker", 10000);
+  m_tsp1PointsPub = m_nh.advertise<visualization_msgs::Marker>("tsp1_marker", 10000);
+  m_tsp2PointsPub = m_nh.advertise<visualization_msgs::Marker>("tsp2_marker", 10000);
   m_addPointsPub = m_nh.advertise<visualization_msgs::Marker>("added_marker", 10000);
   m_pathPub = m_nh.advertise<visualization_msgs::Marker>("path_marker", 10000);
   m_gridmapsub = m_nh.subscribe<nav_msgs::OccupancyGrid>("m_gridmap_fin", 1000, &FindPositions::mapCallback, this); 
   m_globalCostmapSub = m_nh.subscribe("move_base_node/global_costmap/costmap", 100, &FindPositions::globalCostmapCallBack, this );
+  m_startPoseSub = m_nh.subscribe("start_pose", 2, &FindPositions::poseCallback, this);
   
   if (mp_cost_translation_table == NULL){
     mp_cost_translation_table = new uint8_t[101];
@@ -118,21 +120,44 @@ void FindPositions::solving_tsp_concorde(int flag){
       int x=waypoints[turn][0], y=waypoints[turn][1];
       array<double, 2> world_position = gridmapToworld(x,y);
       waypointsWorld.push_back({world_position[0], world_position[1]});
-      geometry_msgs::Point p;
-      p.x=world_position[0]; p.y=world_position[1]; p.z=0.0;
+      //geometry_msgs::Point p;
+      //p.x=world_position[0]; p.y=world_position[1]; p.z=0.0;
         
-      tsp_points.points.push_back(p);
-      //line_strip.points.push_back(p);
+      //tsp2_points.points.push_back(p);
+      //t2_line_strip.points.push_back(p);
     }
+    //ROS_INFO("tsp2 points");
+    //m_tsp2PointsPub.publish(tsp2_points);
+    //m_wayPointsPub.publish(t2_line_strip);
     
-    m_tspPointsPub.publish(tsp_points);
-    //m_wayPointsPub.publish(line_strip);
+    //clock_t start_0=clock();
+    //while((clock()-start_0)/CLOCKS_PER_SEC <= 10) ;
+  
+    
+    //m_wayPointsPub.publish(t_line_strip);
     ////eraseInvalidByDist();
     //eraseInvalidByWall();
     checkRealPath();
     
   }
   else{
+    for (int i = 0; i < m_TSPSolver.ncount; i++) {
+      int turn= m_TSPSolver.out_tour[i];
+      int x=middles[turn][0], y=middles[turn][1];
+      array<double, 2> world_position = gridmapToworld(x,y);
+      geometry_msgs::Point p;
+      p.x=world_position[0]; p.y=world_position[1]; p.z=0.0;
+        
+      //tsp1_points.points.push_back(p);
+      t1_line_strip.points.push_back(p);
+    }
+    ROS_INFO("tsp1 points");
+    m_tsp1PointsPub.publish(tsp1_points);
+    //m_wayPointsPub.publish(t1_line_strip);
+    
+    //clock_t start_1=clock();
+    //while((clock()-start_1)/CLOCKS_PER_SEC <= 15) ;
+    
     findWaypointsDistance(m_TSPSolver.out_tour); 
   }
   
@@ -180,7 +205,7 @@ void FindPositions::mapCallback(const nav_msgs::OccupancyGrid::ConstPtr& msg){
   for(int i=0; i<origin_map.size();i++){
     if(origin_map[i]!=0){
       padding(i, 9, 1);
-      padding(i, 6, 2);
+      padding(i, 5, 2);
     }
   }
   
@@ -190,6 +215,7 @@ void FindPositions::mapCallback(const nav_msgs::OccupancyGrid::ConstPtr& msg){
       int check_pose = get2DToPose(x, y);
       
       if(map_flags[check_pose] == 0){
+        
         middles.push_back({x, y});
       }
     }
@@ -202,6 +228,14 @@ void FindPositions::globalCostmapCallBack(const nav_msgs::OccupancyGrid::ConstPt
 	m_globalcostmap = *msg ;
 	m_globalcostmap_rows = m_globalcostmap.info.height ;
 	m_globalcostmap_cols = m_globalcostmap.info.width ;
+}
+
+void FindPositions::poseCallback(const geometry_msgs::PoseStamped::ConstPtr& msg){
+  ROS_INFO("+++++++++++++++++++++++++++++++++++++++++++++++++");
+  m_sposeAvailable=1;
+  this->start_pose[0]= msg->pose.position.x;
+  this->start_pose[1]= msg->pose.position.y;
+  ROS_INFO("get starting position {%lf, %lf}" , start_pose[0], start_pose[1]);
 }
 
 
@@ -288,7 +322,7 @@ double FindPositions::calculatePath(double ax, double ay, double bx, double by,i
     path_len += distance(pose_ax, pose_ay, pose_bx, pose_by);
     
     if(mode==1){
-      if(path_len>=2.5){
+      if(path_len>=2.0){
         //result_waypoints.push_back({pose_bx, pose_by});
         add_node++;
         path_len=0;
@@ -298,47 +332,79 @@ double FindPositions::calculatePath(double ax, double ay, double bx, double by,i
     }
   }
   
-  if(mode==1){
-    int equi_dist=plan.size()/(add_node+1);
-    for(int i=1;i<=add_node;i++){
-      double add_x=plan[equi_dist*i].pose.position.x;
-      double add_y=plan[equi_dist*i].pose.position.y;
+  if(mode==1&&add_node>0){
+    //int equi_dist=plan.size()/(add_node+1);
+    int equi_dist=(path_len+(add_node*2.0))/(add_node+1);
+    //for(int i=1;i<=add_node;i++){
+    double check_len=0;
+    for(int i=0; i<plan.size()-1;i++){
+      double pose_ax=plan[i].pose.position.x;
+      double pose_ay=plan[i].pose.position.y;
+      double pose_bx=plan[i+1].pose.position.x;
+      double pose_by=plan[i+1].pose.position.y;
       
-      //have visited node under 1.4m than not add node
-      int not_add=0;
-      for(int ch_node=0;ch_node<result_waypoints.size();ch_node++){
-        double ch_x = result_waypoints[ch_node][0];
-        double ch_y = result_waypoints[ch_node][1];
-        if(distance(add_x, add_y, ch_x, ch_y)<1.8){
-          double ch_path = calculatePath(add_x, add_y, ch_x, ch_y, 0);
-          if(ch_path<2.3){
-            not_add=1;
-            break;
+      check_len += distance(pose_ax, pose_ay, pose_bx, pose_by);
+      //double add_x=plan[equi_dist*i].pose.position.x;
+      //double add_y=plan[equi_dist*i].pose.position.y;
+      if(check_len>= equi_dist){
+        check_len=0;
+        int not_add=0;
+          
+        double add_x= pose_bx;
+        double add_y= pose_by;
+        for(int ch_node=0;ch_node<result_waypoints.size();ch_node++){
+          double ch_x = result_waypoints[ch_node][0];
+          double ch_y = result_waypoints[ch_node][1];
+          if(distance(add_x, add_y, ch_x, ch_y)<1.5){
+            double ch_path = calculatePath(add_x, add_y, ch_x, ch_y, 0);
+            if(ch_path<2.0){
+              not_add=1;
+              break;
+            }
           }
         }
+        if(not_add==0){
+          result_waypoints.push_back({add_x, add_y});
+          p.x=add_x; p.y=add_y; p.z=0.0;
+          add_points.points.push_back(p);
+        }
       }
-      if(not_add!=1){
-        result_waypoints.push_back({add_x, add_y});
-        p.x=add_x; p.y=add_y; p.z=0.0;
-        add_points.points.push_back(p);
-      }
+      //have visited node under 1.4m than not add node
+      //int not_add=0;
+      //for(int ch_node=0;ch_node<result_waypoints.size();ch_node++){
+      //  double ch_x = result_waypoints[ch_node][0];
+      //  double ch_y = result_waypoints[ch_node][1];
+      //  if(distance(add_x, add_y, ch_x, ch_y)<1.5){
+      //    double ch_path = calculatePath(add_x, add_y, ch_x, ch_y, 0);
+      //    if(ch_path<2.0){
+      //      not_add=1;
+      //      break;
+      //    }
+      //  }
+      //}
+    
+      //if(not_add!=1){
+      //  result_waypoints.push_back({add_x, add_y});
+      //  p.x=add_x; p.y=add_y; p.z=0.0;
+      //  add_points.points.push_back(p);
+      //}
     }
   }
-  return path_len+(add_node*2.5);
+  
+  return path_len+(add_node*2.0);
 }
-
 
 int FindPositions::findFirstNode(){
   ROS_INFO("Function find first node..");
-  ROS_INFO("nearby.. %lf %lf", gridmap_origin_pose[0], gridmap_origin_pose[1]);
+  ROS_INFO("nearby.. %lf %lf", start_pose[0], start_pose[1]);
   int node_idx = -1;
   double nearest_path = DBL_MAX;
   for(int ch_node=0;ch_node<waypointsWorld.size();ch_node++){
-    double dist_nn = distance(waypointsWorld[ch_node][0], waypointsWorld[ch_node][1], gridmap_origin_pose[0], gridmap_origin_pose[1]);
+    double dist_nn = distance(waypointsWorld[ch_node][0], waypointsWorld[ch_node][1], start_pose[0], start_pose[1]);
     if(dist_nn<2.0){
       ROS_INFO("found_node: %d", ch_node);
-      double ch_path = calculatePath(waypointsWorld[ch_node][0], waypointsWorld[ch_node][1], gridmap_origin_pose[0], gridmap_origin_pose[1], 0);
-      if(ch_path<nearest_path){
+      double ch_path = calculatePath(waypointsWorld[ch_node][0], waypointsWorld[ch_node][1], start_pose[0], start_pose[1], 0);
+      if(ch_path<nearest_path && ch_path!=0){
       //if(dist_nn<nearest_path){
         nearest_path=dist_nn;
         node_idx = ch_node;
@@ -349,9 +415,6 @@ int FindPositions::findFirstNode(){
   return node_idx;
 }
 
-
-
-
 void FindPositions::checkRealPath(){
   ROS_INFO("Function: check real path %lu", waypointsWorld.size());
   
@@ -359,12 +422,15 @@ void FindPositions::checkRealPath(){
   //cut the invalid sequence.
   //change the sequence 
   //i i+1 to i-ch i
-  int start_node=findFirstNode();
+  
+  //set start
+  int start_node=findFirstNode() + 1;
+  unsigned long way_size=waypointsWorld.size();
   int ch=1;
-  unsigned long way_size = waypointsWorld.size();
   for(int i=0;i<way_size; i++){
-    int cur_i=(start_node+i) % way_size;
-    int pre_i= (cur_i-ch == -1) ? way_size-1:cur_i-ch;
+    int cur_i= (start_node+i)%way_size;
+    int pre_i= (cur_i-ch)==-1? way_size-1:cur_i-ch;
+    ROS_INFO("path %d to %d..", pre_i, cur_i);
     double path_len = calculatePath(waypointsWorld[pre_i][0], waypointsWorld[pre_i][1]
                                     , waypointsWorld[cur_i][0], waypointsWorld[cur_i][1], 1);
     if(path_len==0.0){
@@ -378,9 +444,9 @@ void FindPositions::checkRealPath(){
       for(int ch_node=0;ch_node<result_waypoints.size();ch_node++){
         double ch_x = result_waypoints[ch_node][0];
         double ch_y = result_waypoints[ch_node][1];
-        if(distance(waypointsWorld[cur_i][0], waypointsWorld[cur_i][1], ch_x, ch_y)<1.8){
+        if(distance(waypointsWorld[cur_i][0], waypointsWorld[cur_i][1], ch_x, ch_y)<1.5){
           double ch_path = calculatePath(waypointsWorld[cur_i][0], waypointsWorld[cur_i][1], ch_x, ch_y, 0);
-          if(ch_path<2.3){
+          if(ch_path<2.0){
             not_add=1;
             break;
           }
@@ -393,146 +459,6 @@ void FindPositions::checkRealPath(){
     }
   }
   
-  
-  
-  /*
-  vector<vector<array<double,2>>> v;
-  
-  makeMapForPath();
-  //cut the invalid sequence.
-  int flag=0;
-  v.push_back({waypointsWorld[0]});
-  for(int i=0;i<waypointsWorld.size(); i++){
-    int next_i= i==waypointsWorld.size()-1? 0:i+1;
-    double path_len = calculatePath(waypointsWorld[i][0], waypointsWorld[i][1], waypointsWorld[next_i][0], waypointsWorld[next_i][1]);
-    //check the length is under 3.0 m (first just ???)
-    if(path_len==0.0){
-      ROS_INFO("path is not found..");
-      //do it something.
-    }
-    else if(path_len>=3.0){
-      flag++;
-      v.push_back({waypointsWorld[next_i]});
-    }
-    else{
-      v[flag].push_back(waypointsWorld[next_i]);
-    }
-  }
-  /*
-  ROS_INFO("Graph size: %lu", v.size());
-  for(int i=0;i<v.size(); i++){
-    ROS_INFO("Graph node: %d", i);
-    for(int j=0;j<v[i].size(); j++){
-      ROS_INFO("x: %lf, y: %lf", v[i][j][0], v[i][j][1]);
-    }
-    cout<<endl<<endl;
-  }
-  */
-  /*
-  //make loop 
-  if(v.size()>1){
-    if(v[0][0][0]==v.back().back()[0]
-      &&v[0][0][1]==v.back().back()[1]){
-      v.back().pop_back();
-      v[0].insert(v[0].begin(), v.back().begin(), v.back().end());
-      v.pop_back();
-    }
-  }
-  
-  //print the graph size and each waypoints 
-  ROS_INFO("Graph size: %lu", v.size());
-  for(int i=0;i<v.size(); i++){
-    ROS_INFO("Graph node: %d", i);
-    for(int j=0;j<v[i].size(); j++){
-      ROS_INFO("x: %lf, y: %lf", v[i][j][0], v[i][j][1]);
-    }
-  }
-  
-  ROS_INFO("find near node");
-  for(int i=0; i<v[0].size();i++){
-    result_waypoints.push_back(v[0][i]);
-  }
-  if(v.size()>1){
-    int node_idx=0;
-    
-    //vector<vector<array<double,2>>> v_check;
-    //v_check.assign(v.begin(), v.end());
-    
-    /////ej_find_connected_graph
-    while(!v.empty()){
-      ROS_INFO("Node index is %d", node_idx);
-      for(int i=0;i<v[node_idx].size(); i++){
-        //node_idx for target
-        int near=0;
-        int near_node=-1;
-        int near_wp=-1;
-        double near_len=DBL_MAX;
-        for(int n=0;n<v.size(); n++){
-          //check the n'th index node in v_check
-          if(near==1||node_idx==n) break;
-          for(int m=0;m<v[n].size(); m++){
-            //m: waypoint's index
-            double path_len_ch = calculatePath(v[node_idx][i][0], v[node_idx][i][1],
-                                            v[n][m][0], v[n][m][1]);
-            if(path_len_ch<3.0){
-              for(int ii=m; ii<v[n].size();ii++){
-                result_waypoints.push_back(v[n][ii]);
-              }
-              for(int ii=m-1; ii>=0;ii--){
-                result_waypoints.push_back(v[n][ii]);
-              }
-              vector<vector<array<double,2>>>::iterator nth_1 = v.begin() + node_idx;
-              v.erase(nth_1);
-              delete *nth_1;
-              node_idx = n;
-              near=1;
-              break;
-            }
-            if(path_len_ch<near_len){
-              near_len=path_len_ch;
-              near_node=n;
-              near_wp=m;
-            }
-          }
-        }
-        if(near!=1){
-          for(int ii=near_wp; ii<v[0].size();ii++){
-            result_waypoints.push_back(v[near_node][ii]);
-          }
-          for(int ii=near_wp-1; ii>=0;ii--){
-            result_waypoints.push_back(v[near_node][ii]);
-          }
-          vector<vector<array<double,2>>>::iterator nth_2 = v.begin() + node_idx;
-          v.erase(nth_2);
-          delete *nth_2;
-          node_idx = near_node;
-          near=1;
-        }
-      }
-    }
-  }
-  */
-  
-  ////ej_visual 
-  /*
-  for(int i=0;i<v.size(); i++){
-    //ROS_INFO("Graph node: %d", i);
-    for(int j=0;j<v[i].size(); j++){
-      //ROS_INFO("x: %lf, y: %lf", v[i][j][0], v[i][j][1]);
-      ////ej_visual
-      geometry_msgs::Point p;
-      std_msgs::ColorRGBA p_c;
-      
-      p.x=v[i][j][0]; p.y=v[i][j][1]; p.z=0.0;
-      p_c.a = (j==0||j==v[i].size()-1) ? 0.0 : 1.0;
-      p_c.b = (j==0||j==v[i].size()-1) ? 0.0 : 1.0;
-      m_points.points.push_back(p);
-      line_strip.colors.push_back(p_c);
-      line_strip.points.push_back(p);
-      ////
-    }
-  }
-  */
   ROS_INFO("result_waypoints: size:: %lu", result_waypoints.size());
   for(int i=0;i<result_waypoints.size(); i++){
     geometry_msgs::Point p;
@@ -543,33 +469,20 @@ void FindPositions::checkRealPath(){
   }
  
   ////ej_visual
-  m_addPointsPub.publish(add_points);
-  m_pathPub.publish(m_path_points);
+  ROS_INFO("path print");
+  //m_pathPub.publish(m_path_points);
+  //clock_t start_2=clock();
+  //while((clock()-start_2)/CLOCKS_PER_SEC <= 10) ;
+  
+  ROS_INFO("add points");
+  //m_addPointsPub.publish(add_points);
+  //clock_t start_1=clock();
+  //while((clock()-start_1)/CLOCKS_PER_SEC <= 10) ;
+  
+  ROS_INFO("result of sequence");
   m_wayPointsPub.publish(m_points);
   m_wayPointsPub.publish(line_strip);
   
-    ///////make map test.txt to isualize map////////////
-  /*
-  ofstream ofile;
-  ofile.open("/home/ej/test.txt");
-  
-  ROS_INFO("file open?: %d", ofile.is_open());
-  
-  unsigned char* testmap = this->mpo_costmap->getCharMap() ;
-  for(uint32_t ridx = 0; ridx < this->map_height; ridx++){
-    for(uint32_t cidx=0; cidx < this->map_width; cidx++){
-      uint32_t idx = ridx * this->map_width + cidx ;
-      if (ofile.is_open()) {
-        ofile <<static_cast<unsigned>(testmap[idx]) << ", ";
-        cout <<static_cast<unsigned>(testmap[idx])<< ", ";
-      }
-    }
-  }
-  
-  ofile.close();
-  *////////////////////////////////////////////////////
-  ////
-  //*/
   //ROS_INFO("Sequence: %d, %d\n", i, next_idx);
 }
 
